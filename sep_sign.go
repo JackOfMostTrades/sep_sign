@@ -15,7 +15,9 @@ import (
 	"os/exec"
 )
 
-//go:generate swiftc -o sep_sign main.swift
+//go:generate swiftc -target x86_64-apple-macos11.0 -o sep_sign-amd64 main.swift
+//go:generate swiftc -target arm64-apple-macos11.0 -o sep_sign-arm64 main.swift
+//go:generate lipo -create sep_sign-amd64 sep_sign-arm64 -o sep_sign
 //go:generate strip sep_sign
 
 //go:embed sep_sign
