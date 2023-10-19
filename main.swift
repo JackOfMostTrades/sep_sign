@@ -1,5 +1,7 @@
-import Foundation
 import CryptoKit
+import Foundation
+import LocalAuthentication
+import Security
 
 struct Output: Encodable {
   var isAvailable: Bool?
@@ -10,6 +12,8 @@ struct Output: Encodable {
 
 let argsv = Array(CommandLine.arguments.dropFirst())
 var generate = false
+var requireBiometry = false
+var requireUnlocked = false
 var privateKeyArg: String?
 var dataArg: String?
 
@@ -18,6 +22,10 @@ while i < argsv.count {
   switch argsv[i] {
     case "--generate":
       generate = true
+    case "--requireBiometry":
+      requireBiometry = true
+    case "--requireUnlocked":
+      requireUnlocked = true
     case "--key":
       privateKeyArg = argsv[i+1]
       i += 1
@@ -31,6 +39,7 @@ while i < argsv.count {
   i += 1
 }
 
+let authContext = LAContext()
 var output: Output = Output()
 output.isAvailable = CryptoKit.SecureEnclave.isAvailable
 
@@ -40,12 +49,41 @@ if generate {
     print("Cannot specify both --generate and --key")
     exit(1)
   }
-  let key = try CryptoKit.SecureEnclave.P256.Signing.PrivateKey() 
+
+  let protection: CFTypeRef
+  if (requireUnlocked) {
+    protection = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+  } else {
+    protection = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+  }
+
+  let flags: SecAccessControlCreateFlags
+  if (requireBiometry) {
+    flags = [SecAccessControlCreateFlags.privateKeyUsage, SecAccessControlCreateFlags.biometryCurrentSet]
+  } else {
+    flags = [SecAccessControlCreateFlags.privateKeyUsage]
+  }
+
+  let accessCtrl = SecAccessControlCreateWithFlags(
+    kCFAllocatorDefault,
+    protection,
+    flags,
+    nil
+  )
+  precondition(accessCtrl != nil, "SecAccessControlCreateWithFlags failed")
+
+  let key = try CryptoKit.SecureEnclave.P256.Signing.PrivateKey(
+    accessControl: accessCtrl!,
+    authenticationContext: authContext
+  )
   privateKey = key
   output.privateKey = key.dataRepresentation.base64EncodedString()
   output.publicKey = key.publicKey.derRepresentation.base64EncodedString()
 } else if privateKeyArg != nil {
-  privateKey = try CryptoKit.SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: Data(base64Encoded: privateKeyArg!)!)
+  privateKey = try CryptoKit.SecureEnclave.P256.Signing.PrivateKey(
+    dataRepresentation: Data(base64Encoded: privateKeyArg!)!,
+    authenticationContext: authContext
+  )
 }
 
 if let dataB64 = dataArg {

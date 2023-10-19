@@ -10,9 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 //go:generate swiftc -target x86_64-apple-macos11.0 -o sep_sign-amd64 main.swift
@@ -30,10 +30,20 @@ type execOutput struct {
 	Signature   []byte `json:"signature"`
 }
 
-func execBinary(args ...string) (*execOutput, error) {
-	file, err := ioutil.TempFile("", "")
+func execBinary(appName string, args ...string) (*execOutput, error) {
+	tmpDir, err := os.MkdirTemp("", "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary file for sep_sign binary: %v", err)
+		return nil, fmt.Errorf("failed to create temporary directory for sep_sign binary: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	fileName := appName
+	if fileName == "" {
+		fileName = "sep_sign"
+	}
+	file, err := os.OpenFile(filepath.Join(tmpDir, fileName), os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0700)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporory file for sep_sign binary: %v", err)
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
@@ -44,10 +54,6 @@ func execBinary(args ...string) (*execOutput, error) {
 	err = file.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to close file: %v", err)
-	}
-	err = os.Chmod(file.Name(), 0700)
-	if err != nil {
-		return nil, fmt.Errorf("failed to chmod sep_sign binary: %v", err)
 	}
 
 	cmd := exec.Command(file.Name(), args...)
@@ -77,15 +83,28 @@ func execBinary(args ...string) (*execOutput, error) {
 }
 
 func IsAvailable() (bool, error) {
-	output, err := execBinary()
+	output, err := execBinary("")
 	if err != nil {
 		return false, err
 	}
 	return output.IsAvailable, nil
 }
 
-func Generate() ([]byte, crypto.PublicKey, error) {
-	output, err := execBinary("--generate")
+type GenerateOptions struct {
+	RequireBiometry bool
+	RequireUnlocked bool
+}
+
+func Generate(options *GenerateOptions) ([]byte, crypto.PublicKey, error) {
+	args := []string{"--generate"}
+	if options != nil && options.RequireBiometry {
+		args = append(args, "--requireBiometry")
+	}
+	if options != nil && options.RequireUnlocked {
+		args = append(args, "--requireUnlocked")
+	}
+
+	output, err := execBinary("", args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -96,9 +115,19 @@ func Generate() ([]byte, crypto.PublicKey, error) {
 	return output.PrivateKey, publicKey, nil
 }
 
-func SignData(privateKey []byte, data []byte) ([]byte, error) {
-	output, err := execBinary("--key", base64.StdEncoding.EncodeToString(privateKey),
-		"--data", base64.StdEncoding.EncodeToString(data))
+type SignOptions struct {
+	PrivateKey []byte
+	Data       []byte
+	AppName    string
+}
+
+func SignData(options *SignOptions) ([]byte, error) {
+	if options == nil {
+		return nil, fmt.Errorf("options argument is required")
+	}
+
+	output, err := execBinary(options.AppName, "--key", base64.StdEncoding.EncodeToString(options.PrivateKey),
+		"--data", base64.StdEncoding.EncodeToString(options.Data))
 	if err != nil {
 		return nil, err
 	}
