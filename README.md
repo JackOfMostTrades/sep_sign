@@ -5,7 +5,8 @@ This library uses the [CryptoKit](https://developer.apple.com/documentation/cryp
 Since this library is only available with a Swift API, I have written a small helper CLI in swift.
 The CLI is [embedded](https://pkg.go.dev/embed) in this package and will be extracted (into a temporary file that is immediately cleanup up after execution) and run as needed.
 
-It would be possible to implement this library instead using cgo (e.g. [using an objective-c bridge](https://github.com/smasher164/swift-cgo-example)), but that requires linking agaist all of the swift runtime libraries which is a bit heavy-handed. Relying on an embedded binary seemed like the less obtrusive option.
+It would be possible to implement this library instead using cgo (e.g. [using an objective-c bridge](https://github.com/smasher164/swift-cgo-example)), but that requires linking against all of the swift runtime libraries which is a bit heavy-handed.
+Relying on an embedded binary seemed like the less obtrusive option.
 
 # Rebuilding the binary
 
@@ -28,8 +29,10 @@ func main() {
     }
 
     // Generate a new key. The "privateKey" returned is an opaque []byte
-    // that represents a handle in the SEP.
-    privateKey, publicKey, err := sep_sign.Generate()
+    // that represents a handle in the SEP. You can pass additional options
+    // when generating the key, such as requiring biometry (touch ID) when
+    // the key is used.
+    privateKey, publicKey, err := sep_sign.Generate(nil)
     if err != nil { panic(err) }
 
     // Generate some random data to sign
@@ -38,7 +41,7 @@ func main() {
     if err != nil { panic(err) }
 
     // Sign the data using the opaque key handle from above
-    sig, err := sep_sign.SignData(privateKey, data)
+    sig, err := sep_sign.SignData(&sep_sign.SignOptions{PrivateKey: privateKey, Data: data})
     if err != nil { panic(err) }
 
     hash := sha256.Sum256(data)
